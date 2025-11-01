@@ -155,7 +155,7 @@ class EthicsDetector:
                 })
                 
         return suspicious
-    
+
     def detect_citation_cartels(self, references_df: pd.DataFrame, 
                               affiliation_threshold: float = 0.7,
                               citation_threshold: float = 0.6) -> List[Dict]:
@@ -163,60 +163,68 @@ class EthicsDetector:
         Обнаружение цитатных колец (групп авторов/организаций, цитирующих друг друга)
         """
         suspicious = []
-        
+    
         try:
-            # Строим граф цитирований между аффилиациями
-            affiliation_citation_graph = nx.Graph()
-            affiliation_citations = {}
-            
+            if references_df.empty:
+                return suspicious
+        
+            # Собираем все уникальные affils из всех refs (глобальный граф)
+            all_affils = set()
             for _, ref in references_df.iterrows():
-                source_affiliations = self._extract_affiliations(ref.get('affiliations', ''))
-                citing_affiliations = self._extract_affiliations(ref.get('affiliations', ''))
-                
-                for source_affil in source_affiliations:
-                    for citing_affil in citing_affiliations:
-                        if source_affil != citing_affil and source_affil != 'Unknown' and citing_affil != 'Unknown':
-                            key = (source_affil, citing_affil)
-                            affiliation_citations[key] = affiliation_citations.get(key, 0) + 1
-                            
-                            if affiliation_citation_graph.has_edge(source_affil, citing_affil):
-                                affiliation_citation_graph[source_affil][citing_affil]['weight'] += 1
-                            else:
-                                affiliation_citation_graph.add_edge(source_affil, citing_affil, weight=1)
+                affils = self._extract_affiliations(ref.get('affiliations', ''))
+                all_affils.update(affil for affil in affils if affil != 'Unknown')
+        
+            if len(all_affils) < 3:
+                return suspicious  # Недостаточно для cliques
+        
+            # Строим простой граф: edges между affils, если они co-occur в одной ref (упрощение)
+            affiliation_citation_graph = nx.Graph()
+            for _, ref in references_df.iterrows():
+                affils = [a for a in self._extract_affiliations(ref.get('affiliations', '')) if a != 'Unknown']
+                for pair in combinations(affils, 2):
+                    if pair[0] != pair[1]:
+                        u, v = pair
+                        if affiliation_citation_graph.has_edge(u, v):
+                            affiliation_citation_graph[u][v]['weight'] += 1
+                        else:
+                            affiliation_citation_graph.add_edge(u, v, weight=1)
+        
+            if len(affiliation_citation_graph.nodes()) > 0 and len(affiliation_citation_graph.edges()) > 0:
+                # Лимит: max 1000 nodes для nx.find_cliques
+                if len(affiliation_citation_graph) > 1000:
+                    st.warning("Граф слишком большой (>1000 nodes), пропускаем cliques")
+                    return suspicious
             
-            # Анализируем плотность цитирований внутри групп
-            if len(affiliation_citation_graph.nodes()) > 0:
-                # Ищем клики и плотные подграфы
                 cliques = list(nx.find_cliques(affiliation_citation_graph))
-                
+            
                 for clique in cliques:
-                    if len(clique) >= 3:  # Минимум 3 организации для кольца
+                    if len(clique) >= 3:
                         internal_citations = 0
                         total_possible_citations = len(clique) * (len(clique) - 1)
-                        
+                    
                         for org1, org2 in combinations(clique, 2):
                             if affiliation_citation_graph.has_edge(org1, org2):
                                 internal_citations += affiliation_citation_graph[org1][org2]['weight']
-                        
+                    
                         if total_possible_citations > 0:
                             density = internal_citations / total_possible_citations
-                            
+                        
                             if density > citation_threshold:
                                 suspicious.append({
                                     'type': 'CITATION_CARTEL',
                                     'severity': 'HIGH',
-                                    'organizations': clique,
+                                    'organizations': list(clique),
                                     'internal_citations': internal_citations,
                                     'total_possible_citations': total_possible_citations,
                                     'density': round(density, 3),
                                     'threshold': citation_threshold,
                                     'description': f"Обнаружено цитатное кольцо из {len(clique)} организаций с плотностью цитирований {density:.1%}"
                                 })
-                                
+                            
         except Exception as e:
-            # В случае ошибки просто возвращаем пустой список
+            st.error(f"Ошибка в detect_citation_cartels: {e}")
             pass
-            
+        
         return suspicious
     
     def detect_newborn_citation(self, references_df: pd.DataFrame, 
@@ -3494,6 +3502,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
