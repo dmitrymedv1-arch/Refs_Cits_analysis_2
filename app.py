@@ -73,7 +73,7 @@ class EthicsDetector:
     def __init__(self):
         self.suspicious_patterns = []
         
-    def detect_citation_burst(self, citations_df: pd.DataFrame, source_articles_df: pd.DataFrame, 
+    def detect_citation_burst(self, source_articles_df: pd.DataFrame, citations_df: pd.DataFrame, 
                             threshold_ratio: float = 10.0) -> List[Dict]:
         """
         Обнаружение внезапных всплесков цитирований
@@ -2836,11 +2836,32 @@ Altmetric metrics included for social media and online attention analysis
 
     def run_ethics_analysis(self, combined_df: pd.DataFrame, source_articles_df: pd.DataFrame) -> Dict:
         """Запуск анализа неэтичных практик"""
-        st.info("🔍 Запуск анализа неэтичных практик цитирования...")
-        
-        ethics_results = self.ethics_detector.run_complete_analysis(combined_df, source_articles_df)
-        
-        return ethics_results
+        try:
+            st.info("🔍 Запуск анализа неэтичных практик цитирования...")
+            
+            # Проверяем, что данные не пустые
+            if combined_df.empty or source_articles_df.empty:
+                st.warning("Недостаточно данных для анализа неэтичных практик")
+                return {
+                    'summary': {
+                        'total_findings': 0,
+                        'severity_counts': {'HIGH': 0, 'MEDIUM': 0, 'LOW': 0},
+                        'analysis_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                }
+            
+            ethics_results = self.ethics_detector.run_complete_analysis(combined_df, source_articles_df)
+            
+            return ethics_results
+        except Exception as e:
+            st.error(f"Ошибка при анализе неэтичных практик: {e}")
+            return {
+                'summary': {
+                    'total_findings': 0,
+                    'severity_counts': {'HIGH': 0, 'MEDIUM': 0, 'LOW': 0},
+                    'analysis_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+            }
 
     def display_ethics_results(self, ethics_results: Dict):
         """Отображение результатов анализа неэтичных практик"""
@@ -3461,5 +3482,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
