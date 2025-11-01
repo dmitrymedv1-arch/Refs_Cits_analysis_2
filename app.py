@@ -349,7 +349,7 @@ class EthicsDetector:
             pass
             
         return suspicious
-    
+
     def detect_citation_templating(self, references_df: pd.DataFrame,
                                  template_size: int = 5,
                                  occurrence_threshold: int = 10) -> List[Dict]:
@@ -359,25 +359,36 @@ class EthicsDetector:
         occurrence_threshold: минимальное количество повторений
         """
         suspicious = []
-        
+    
         try:
+            import random  # Локальный импорт для сэмплинга (если не добавлен глобально)
+        
             # Создаем наборы цитирований для каждой статьи
             article_citation_sets = {}
             for source_doi in references_df['source_doi'].unique():
                 refs = references_df[references_df['source_doi'] == source_doi]
-                cited_dois = set(refs['doi'].dropna())
+                cited_dois = list(refs['doi'].dropna())  # Преобразуем в list для sample
                 if len(cited_dois) >= template_size:
-                    article_citation_sets[source_doi] = cited_dois
-            
+                    # Сэмплируем, если слишком много (избежать memory boom)
+                    if len(cited_dois) > 50:
+                        cited_dois = random.sample(cited_dois, 50)  # Max 50 для безопасности
+                        st.warning(f"Сэмплировано 50 DOI для {source_doi} (было {len(refs['doi'].dropna())})")
+                    article_citation_sets[source_doi] = set(cited_dois)
+        
             # Ищем часто встречающиеся комбинации
             citation_combinations = {}
-            
+        
             for doi, citation_set in article_citation_sets.items():
-                # Берем все комбинации заданного размера
-                for combo in combinations(citation_set, min(template_size, len(citation_set))):
-                    combo_key = frozenset(combo)
-                    citation_combinations[combo_key] = citation_combinations.get(combo_key, []) + [doi]
+                effective_size = min(template_size, len(citation_set))
+                # Генерируем только если мало (лимит для безопасности)
+                if effective_size > 15:  # C(15,5)=3003, безопасно; больше — skip
+                    st.warning(f"Пропущен большой набор для {doi}: {len(citation_set)} DOI слишком много для шаблона {effective_size}")
+                    continue
             
+            for combo in combinations(citation_set, effective_size):
+                combo_key = frozenset(combo)
+                citation_combinations[combo_key] = citation_combinations.get(combo_key, []) + [doi]
+        
             # Проверяем комбинации, встречающиеся часто
             for combo, articles in citation_combinations.items():
                 if len(articles) >= occurrence_threshold:
@@ -391,10 +402,11 @@ class EthicsDetector:
                         'threshold': occurrence_threshold,
                         'description': f"Шаблон из {len(combo)} цитирований используется в {len(articles)} статьях"
                     })
-                    
+                
         except Exception as e:
+            st.error(f"Ошибка в detect_citation_templating: {e}")  # Лог вместо pass
             pass
-            
+        
         return suspicious
     
     def run_complete_analysis(self, references_df: pd.DataFrame, source_articles_df: pd.DataFrame) -> Dict:
@@ -3482,6 +3494,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
